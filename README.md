@@ -35,10 +35,20 @@ npm install
 npm run build
 ```
 
-4. Start the server
+4. Start the full stack server
+
+From the project root, run:
 
 ```bash
-cd ../backend
+npm start
+```
+
+This will launch both backend and frontend together.
+
+If you want to run backend and frontend separately instead, use:
+
+```bash
+cd backend
 npm start
 ```
 
