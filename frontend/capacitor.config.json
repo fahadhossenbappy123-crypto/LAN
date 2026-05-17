@@ -1,0 +1,9 @@
+{
+  "appId": "com.example.lanshare",
+  "appName": "LAN Share",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "http"
+  }
+}

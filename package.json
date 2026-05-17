@@ -1,0 +1,9 @@
+{
+  "name": "lan-file-share",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node start-all.js",
+    "start:dev": "node start-all.js"
+  }
+}
