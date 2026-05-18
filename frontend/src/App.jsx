@@ -54,6 +54,7 @@ function App() {
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState('');
   const [deviceName, setDeviceName] = useState(localStorage.getItem('deviceName') || '');
+  const [selectedUploaders, setSelectedUploaders] = useState([]);
   const fileInputRef = useRef(null);
   const socketRef = useRef(null);
 
@@ -71,7 +72,7 @@ function App() {
     let name = localStorage.getItem('deviceName') || '';
     if (!name) {
       try {
-        name = window.prompt('Enter a device name (e.g. Phone, Laptop, Office-PC)') || `${navigator.platform || 'Device'}`;
+        name = window.prompt('Enter Your Name: ') || `${navigator.platform || 'Device'}`;
       } catch (err) {
         name = `${navigator.platform || 'Device'}`;
       }
@@ -117,6 +118,14 @@ function App() {
 
   const localUrl = useMemo(() => window.location.origin, []);
   const safeFiles = ensureArray(files);
+  const uploaders = useMemo(
+    () => Array.from(new Set(safeFiles.map((file) => file.uploader || 'Unknown'))),
+    [safeFiles]
+  );
+  const visibleFiles = useMemo(
+    () => (selectedUploaders.length > 0 ? safeFiles.filter((file) => selectedUploaders.includes(file.uploader)) : safeFiles),
+    [safeFiles, selectedUploaders]
+  );
 
   const uploadFiles = async (selectedFiles) => {
     if (!selectedFiles || selectedFiles.length === 0) return;
@@ -160,6 +169,44 @@ function App() {
   const handleFileChange = (event) => {
     uploadFiles(event.target.files);
     event.target.value = null;
+  };
+
+  const toggleUploaderSelection = (name) => {
+    setSelectedUploaders((prev) => {
+      if (prev.includes(name)) {
+        return prev.filter((item) => item !== name);
+      }
+      return [...prev, name];
+    });
+  };
+
+  const selectAllUploaders = () => setSelectedUploaders(uploaders);
+  const clearSelectedUploaders = () => setSelectedUploaders([]);
+
+  const downloadAllMarkedUploaderFiles = async () => {
+    if (selectedUploaders.length === 0 || visibleFiles.length === 0) return;
+    setError('');
+    setStatus(`Preparing ZIP of ${visibleFiles.length} files from ${selectedUploaders.join(', ')}...`);
+
+    try {
+      const filenames = visibleFiles.map((f) => f.filename);
+      const resp = await apiClient.post('/api/download/files', { filenames }, { responseType: 'blob' });
+      const blob = new Blob([resp.data], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${selectedUploaders.join('_') || 'files'}-bundle.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setStatus(`Download started for ${visibleFiles.length} files.`);
+    } catch (err) {
+      console.error('Batch download failed', err);
+      const serverMsg = err?.response?.data?.message || err.message || 'Failed to prepare batch download.';
+      setError(serverMsg);
+      setStatus('Ready');
+    }
   };
 
   const previewFile = (file) => {
@@ -295,12 +342,64 @@ function App() {
               <h2 className="mt-2 text-2xl font-semibold">Uploaded files</h2>
             </div>
             <div className="rounded-full bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm dark:bg-slate-900 dark:text-slate-100">
-              {safeFiles.length} files available
+              {visibleFiles.length} files available
+            </div>
+          </div>
+          <div className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Marked uploaders</p>
+                <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">Check one or more uploaders and download all of their shared files.</p>
+              </div>
+              {selectedUploaders.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-cyan-100 px-3 py-2 text-sm font-semibold text-cyan-700 dark:bg-cyan-900/80 dark:text-cyan-200">{selectedUploaders.length} selected</span>
+                  <button
+                    onClick={clearSelectedUploaders}
+                    className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:border-cyan-500 dark:hover:text-cyan-300"
+                  >
+                    Clear selection
+                  </button>
+                  <button
+                    onClick={selectAllUploaders}
+                    className="rounded-full border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:border-cyan-500 dark:hover:text-cyan-300"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    onClick={downloadAllMarkedUploaderFiles}
+                    className="rounded-full bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-slate-700"
+                    disabled={visibleFiles.length === 0}
+                  >
+                    Download {visibleFiles.length} files
+                  </button>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500 dark:text-slate-400">No uploader selected yet.</p>
+              )}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {uploaders.length > 0 ? uploaders.map((name) => (
+                <label
+                  key={name}
+                  className="inline-flex cursor-pointer items-center rounded-full border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:border-cyan-500 dark:hover:text-cyan-300"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedUploaders.includes(name)}
+                    onChange={() => toggleUploaderSelection(name)}
+                    className="mr-2 h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                  />
+                  {name}
+                </label>
+              )) : (
+                <span className="text-sm text-slate-500 dark:text-slate-400">No uploaders available yet.</span>
+              )}
             </div>
           </div>
 
           <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {safeFiles.map((file) => (
+            {visibleFiles.map((file) => (
               <div key={file.filename} className="group overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-xl dark:border-slate-800 dark:bg-slate-900">
                 <div className="flex items-center gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
                   <div className="rounded-2xl bg-slate-100 p-3 dark:bg-slate-950">{getIcon(file.mimeType)}</div>
@@ -330,6 +429,12 @@ function App() {
                     >
                       <Download className="h-4 w-4" /> Download
                     </a>
+                    <button
+                      onClick={() => toggleUploaderSelection(file.uploader || 'Unknown')}
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-600 dark:border-slate-800 dark:bg-slate-950 dark:text-cyan-200 dark:hover:border-cyan-500 dark:hover:text-cyan-300"
+                    >
+                      {selectedUploaders.includes(file.uploader || 'Unknown') ? 'Marked' : 'Mark uploader'}
+                    </button>
                   </div>
                 </div>
               </div>

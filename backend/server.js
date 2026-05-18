@@ -4,6 +4,7 @@ const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const multer = require('multer');
+const archiver = require('archiver');
 const { Server } = require('socket.io');
 
 const app = express();
@@ -25,7 +26,8 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 }
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use('/files', express.static(UPLOAD_DIR));
 app.use(express.static(FRONTEND_DIST));
 
@@ -40,7 +42,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-const getFiles = () => {
+const getFiles = (uploaderFilter) => {
   const files = fs.readdirSync(UPLOAD_DIR).filter(f => f !== path.basename(METADATA_FILE));
   let metadata = {};
   try {
@@ -66,6 +68,7 @@ const getFiles = () => {
         url: `/files/${encodeURIComponent(filename)}`
       };
     })
+    .filter((file) => !uploaderFilter || file.uploader === uploaderFilter)
     .sort((a, b) => b.uploadedAt - a.uploadedAt);
 };
 
@@ -89,9 +92,68 @@ const getMimeType = (filename) => {
 
 app.get('/api/files', (req, res) => {
   try {
-    res.json(getFiles());
+    const uploader = req.query.uploader;
+    res.json(getFiles(uploader));
   } catch (error) {
     res.status(500).json({ message: 'Unable to load files' });
+  }
+});
+
+// Create a ZIP archive of specific filenames (passed in request body) and stream it
+app.post('/api/download/files', (req, res) => {
+  const { filenames } = req.body || {};
+  if (!filenames || !Array.isArray(filenames) || filenames.length === 0) {
+    return res.status(400).json({ message: 'Missing filenames array in request body' });
+  }
+
+  console.log(`/api/download/files requested for ${filenames.length} files`);
+  // keep filenames small for logging
+  console.log(filenames.slice(0, 20));
+
+  let metadata = {};
+  try {
+    if (fs.existsSync(METADATA_FILE)) {
+      metadata = JSON.parse(fs.readFileSync(METADATA_FILE, 'utf8') || '{}');
+    }
+  } catch (err) {
+    console.error('Failed to read metadata.json', err);
+    return res.status(500).json({ message: 'Unable to read metadata' });
+  }
+
+  const filesToInclude = filenames
+    .map((fn) => ({ filename: fn, originalName: (metadata[fn] && metadata[fn].originalName) || fn }))
+    .filter((item) => fs.existsSync(path.join(UPLOAD_DIR, item.filename)));
+
+  if (filesToInclude.length === 0) {
+    return res.status(404).json({ message: 'No valid files found for download' });
+  }
+
+  const safeName = `download-${Date.now()}`;
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName}.zip"`);
+
+  try {
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => {
+      console.error('Archive error', err);
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Failed to create ZIP archive' });
+      } else {
+        res.end();
+      }
+    });
+
+    archive.pipe(res);
+
+    filesToInclude.forEach((item) => {
+      const filePath = path.join(UPLOAD_DIR, item.filename);
+      archive.file(filePath, { name: item.originalName });
+    });
+
+    archive.finalize();
+  } catch (err) {
+    console.error('ZIP creation failed', err);
+    if (!res.headersSent) return res.status(500).json({ message: 'Failed to create ZIP archive' });
   }
 });
 
