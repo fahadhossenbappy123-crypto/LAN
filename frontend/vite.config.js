@@ -5,15 +5,25 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: '0.0.0.0',
-    port: 5173,
-    proxy: {
-      '/api': 'http://localhost:2000',
-      '/upload': 'http://localhost:2000',
-      '/files': 'http://localhost:2000',
-      '/socket.io': {
-        target: 'http://localhost:2000',
-        ws: true,
-      },
+    port: 4173,
+    strictPort: true,
+    hmr: {
+      host: '0.0.0.0'
     },
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:2000',
+        changeOrigin: true
+      },
+      '/upload': {
+        target: 'http://127.0.0.1:2000',
+        changeOrigin: true
+      },
+      '/files': {
+        target: 'http://127.0.0.1:2000',
+        changeOrigin: true
+      }
+      
+    }
   }
 });
